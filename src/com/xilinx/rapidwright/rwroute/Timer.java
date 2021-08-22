@@ -1,5 +1,7 @@
 package com.xilinx.rapidwright.rwroute;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -170,5 +172,17 @@ public class Timer {
 			}
 		}
 		return buffer.toString();
+	}
+	
+	public static void printFormattedLocalDateTime(String name, boolean start) {
+		StringBuilder s1 = new StringBuilder();
+		s1.append("TIMER INFO: " + name);
+		if(start) {
+			s1.append(" STARTED:");
+		}else {
+			s1.append(" STOPPED:");
+		}
+		
+		System.out.println(String.format("%-45s %20s", s1.toString(), ZonedDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)));
 	}
 }

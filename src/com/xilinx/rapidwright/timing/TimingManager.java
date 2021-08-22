@@ -34,6 +34,7 @@ import com.xilinx.rapidwright.rwroute.Configuration;
 import com.xilinx.rapidwright.rwroute.Connection;
 import com.xilinx.rapidwright.rwroute.NetWrapper;
 import com.xilinx.rapidwright.rwroute.Routable;
+import com.xilinx.rapidwright.rwroute.Timer;
 import com.xilinx.rapidwright.rwroute.TimerTree;
 import com.xilinx.rapidwright.timing.delayestimator.DelayEstimatorBase;
 import com.xilinx.rapidwright.util.Pair;
@@ -386,23 +387,29 @@ public class TimingManager {
      * @return Indication of successful completion.
      */
     private boolean build(boolean isPartialRouting) {
+    	Timer.printFormattedLocalDateTime("build timing model", true);
     	if(this.routerTimer != null) this.routerTimer.createTimer("build timing model", "Initialization").start();
         timingModel.build();
         if(this.routerTimer != null) this.routerTimer.getTimer("build timing model").stop();
+        Timer.printFormattedLocalDateTime("build timing model", false);
         
+        Timer.printFormattedLocalDateTime("build timing graph", true);
         if(this.routerTimer != null) this.routerTimer.createTimer("build timing graph", "Initialization").start();
         timingGraph.build(isPartialRouting);
         if(this.routerTimer != null) this.routerTimer.getTimer("build timing graph").stop();
+        Timer.printFormattedLocalDateTime("build timing graph", false);
         
         return postBuild();
     }
 
     private boolean postBuild() {
+    	Timer.printFormattedLocalDateTime("post graph build", true);
     	if(this.routerTimer != null) this.routerTimer.createTimer("post graph build", "Initialization").start();
         timingGraph.removeClockCrossingPaths();
         timingGraph.buildSuperGraphPaths();
         timingGraph.setOrderedTimingVertexLists();
         if(this.routerTimer != null) this.routerTimer.getTimer("post graph build").stop();
+        Timer.printFormattedLocalDateTime("post graph build", false);
         return true;
     }
 

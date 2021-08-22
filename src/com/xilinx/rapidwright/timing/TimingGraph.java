@@ -53,6 +53,7 @@ import com.xilinx.rapidwright.edif.EDIFNet;
 import com.xilinx.rapidwright.edif.EDIFPortInst;
 import com.xilinx.rapidwright.edif.EDIFPropertyValue;
 import com.xilinx.rapidwright.rwroute.RouterHelper;
+import com.xilinx.rapidwright.rwroute.Timer;
 import com.xilinx.rapidwright.rwroute.TimerTree;
 import com.xilinx.rapidwright.util.Pair;
 
@@ -156,7 +157,8 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
         }
         String seriesName = design.getDevice().getSeries().name().toLowerCase();
         intrasiteAndLogicDelayModel = DelayModelBuilder.getDelayModel(seriesName);
-          
+        
+        Timer.printFormattedLocalDateTime("determine logic dly", true);
         if(this.routerTimer != null) this.routerTimer.createTimer("determine logic dly", "build timing graph").start();
         myCellMap = design.getNetlist().generateCellInstMap();
         if(!isPartialRouting) {
@@ -165,7 +167,9 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
         	determineLogicDelaysFromEDIFCellInsts(this.generateCellMapOfUnoutedNets());
         }
         if(this.routerTimer != null) this.routerTimer.getTimer("determine logic dly").stop();
+        Timer.printFormattedLocalDateTime("determine logic dly", false);
         
+        Timer.printFormattedLocalDateTime("add net dly edges", true);
         if(this.routerTimer != null) this.routerTimer.createTimer("add net dly edges", "build timing graph").start();
         for (Net net : this.design.getNets()) {
             if(net.isClockNet()) continue;//this is for getting rid of the problem in addNetDelayEdges() of clock net
@@ -175,6 +179,7 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
             }
         }
         if(this.routerTimer != null) this.routerTimer.getTimer("add net dly edges").stop();
+        Timer.printFormattedLocalDateTime("add net dly edges", false);
     }
     
     public void populateHierCellInstMap() {

@@ -203,9 +203,11 @@ public class RWRoute{
 		this.rnodesCreated = new HashMap<>();		
 		this.rnodeId = 0;
 		
+		Timer.printFormattedLocalDateTime("determine route targets", true);
 		this.routerTimer.createTimer("determine route targets", "Initialization").start();
 		this.determineRoutingTargets();
 		this.routerTimer.getTimer("determine route targets").stop();
+		Timer.printFormattedLocalDateTime("determine route targets", false);
 		
 		if(this.config.isTimingDriven()) {
 			this.timingEdgeConnectionMap = new HashMap<>();
@@ -660,19 +662,25 @@ public class RWRoute{
 	 * Routes the design in a few routing phases and times those phases.
 	 */
 	public void route(){
+		Timer.printFormattedLocalDateTime("Routing", true);
 		this.routerTimer.createTimer("Routing", this.routerTimer.getRootTimer()).start();
 		
+		Timer.printFormattedLocalDateTime("route clock", true);
 		this.routerTimer.createTimer("route clock", "Routing").start();
 		this.routeGlobalClkNets();
 		this.routerTimer.getTimer("route clock").stop();
+		Timer.printFormattedLocalDateTime("route clock", false);
 		
+		Timer.printFormattedLocalDateTime("route static nets", true);
 		this.routerTimer.createTimer("route static nets", "Routing").start();
 		// Routes static nets (VCC and GND) before signals for now.
 		// null could be replaced by a list of reserved nodes if static nets are routed after signals
 		this.routeStaticNets(null);
 		// Connection-based router for indirectly connected pairs of output pin and input pin */
 		this.routerTimer.getTimer("route static nets").stop();
+		Timer.printFormattedLocalDateTime("route static nets", false);
 		
+		Timer.printFormattedLocalDateTime("route wire nets", true);
 		Timer routeWireNets = this.routerTimer.createTimer("route wire nets", "Routing");
 		routeWireNets.start();
 		this.preRoutingEstimation();
@@ -688,15 +696,19 @@ public class RWRoute{
 		this.routerTimer.createTimer("route connections", "route wire nets").setTime(routeWireNets.getTime() - this.rnodesTimer.getTime() - this.updateTimingTimer.getTime() - this.updateCongesFacCosts.getTime());
 		routeWireNets.addChild(this.updateTimingTimer);
 		routeWireNets.addChild(this.updateCongesFacCosts);
+		Timer.printFormattedLocalDateTime("route wire nets", false);
 		
+		Timer.printFormattedLocalDateTime("finalize routes", true);
 		this.routerTimer.createTimer("finalize routes", "Routing").start();
 		// Assigns a list of nodes to each direct and indirect connection that has been routed and fix illegal routes if any
 		this.postRouteProcess();
 		// Assigns net PIPs based on lists of connections
 		this.setPIPsOfNets();
 		this.routerTimer.getTimer("finalize routes").stop();
+		Timer.printFormattedLocalDateTime("finalize routes", false);
 		
 		this.routerTimer.getTimer("Routing").stop();
+		Timer.printFormattedLocalDateTime("Routing", false);
 	}
 	
 	/**
@@ -1750,14 +1762,21 @@ public class RWRoute{
 	public static Design routeDesign(Design design, String[] args, CodePerfTracker tracker) {
 		// Instantiates a Configuration Object and parses the arguments.
 		// Uses the default configuration if basic usage only.
+		Timer.printFormattedLocalDateTime("reads_configuration", true);
 		Configuration config = new Configuration(args);
+		Timer.printFormattedLocalDateTime("reads_configuration", false);
+		
+		Timer.printFormattedLocalDateTime("create_missing_pins", true);
 		DesignTools.makePhysNetNamesConsistent(design);
 		if(!config.isPartialRouting() || (!design.getVccNet().hasPIPs() && !design.getGndNet().hasPIPs())) {
 			DesignTools.createPossiblePinsToStaticNets(design);
 			//TODO 0731 YZ: results in site pin conflicts of optical-flow-post-place dcp
 		}
 		DesignTools.createMissingSitePinInsts(design);
+		Timer.printFormattedLocalDateTime("create_missing_pins", false);
 		
+		Timer.printFormattedLocalDateTime("Route design", true);
+		Timer.printFormattedLocalDateTime("Initialization", true);
 		if(tracker != null) tracker.start("Route Design");
 		RWRoute router;
 		if(config.isPartialRouting()) {
@@ -1765,10 +1784,12 @@ public class RWRoute{
 		}else {
 			router = new RWRoute(design, config);
 		}
+		Timer.printFormattedLocalDateTime("Initialization", false);
 		// Prints the design and configuration info, if "--verbose" is configured
 		router.printDesignNetsInfoAndConfiguration(config.isVerbose());
 		// Routes the design
 		router.route();
+		Timer.printFormattedLocalDateTime("Route design", false);
 		if(tracker != null) tracker.stop();
 		// Prints routing statistics, e.g. total wirelength, runtime and timing report
 		router.printRoutingStatistics();
@@ -1793,9 +1814,11 @@ public class RWRoute{
 		// Reads the output directory and set the output design checkpoint file name
 		String routedDCPfileName = args[1].endsWith("/")?args[1] + "routed_" + dcpName : args[1] + "/routed_" + dcpName;
 		
-		CodePerfTracker t = new CodePerfTracker("RWRoute", true);	
+		CodePerfTracker t = new CodePerfTracker("RWRoute", true);
+		Timer.printFormattedLocalDateTime("read_checkpoint", true);
 		// Reads in a design checkpoint */
 		Design design = Design.readCheckpoint(args[0]);
+		Timer.printFormattedLocalDateTime("read_checkpoint", false);
 		
 		Design routedDesign = RWRoute.routeDesign(design, args, t);
 		// Writes out the routed design checkpoint
