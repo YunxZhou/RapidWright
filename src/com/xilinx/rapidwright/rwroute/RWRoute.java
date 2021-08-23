@@ -174,15 +174,13 @@ public class RWRoute{
 		this.updateTimingTimer = this.routerTimer.createStandAloneTimer("update timing");
 		this.updateCongesFacCosts = this.routerTimer.createStandAloneTimer("update conges costs");
 		this.routerTimer.createTimer("Initialization", this.routerTimer.getRootTimer()).start();
-		
 		RoutableNode.setMaskNodesCrossRCLK(this.config.isMaskNodesCrossRCLK());
 
 		if(this.config.isTimingDriven()) {
-			setTimingData(this.config);			
-			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config);		
+			setTimingData(this.config);
 		    this.estimator = new DelayEstimatorBase(this.design.getDevice(), new InterconnectInfo(), this.config.isUseUTurnNodes(), 0);
 			RoutableNode.setTimingDriven(true, this.estimator);
-			this.nodesDelays = new HashMap<>();
+		    this.nodesDelays = new HashMap<>();
 		}
 		
 		this.minRerouteCriticality = config.getMinRerouteCriticality();
@@ -209,10 +207,11 @@ public class RWRoute{
 		this.routerTimer.getTimer("determine route targets").stop();
 		Timer.printFormattedLocalDateTime("determine route targets", false);
 		
-		if(this.config.isTimingDriven()) {
-			this.timingEdgeConnectionMap = new HashMap<>();
-			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
-		}
+//		if(this.config.isTimingDriven()) {
+//			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config);
+//			this.timingEdgeConnectionMap = new HashMap<>();
+//			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
+//		}
 		
 		this.sortedIndirectConnections = new ArrayList<>();		
 		this.routethruHelper = new RouteThruHelper(this.design.getDevice());		
@@ -291,6 +290,8 @@ public class RWRoute{
 			}
 		}
 		if(this.config.isPrintConnectionSpan()) this.printConnectionSpanStatistics();
+		if(this.conflictNets.size() > 0)
+			System.out.println("CRITICAL WARNING: Conficting nets: " + this.conflictNets.size());
 	}
 	
 	/**
@@ -338,6 +339,7 @@ public class RWRoute{
 		
 		List<TimingEdge> timingEdges = spiAndTimingEdges.get(mappedSink);
 		if(timingEdges == null) {
+			System.out.println(connection.getNetWrapper().getNet());
 			throw new RuntimeException("ERROR: No timing edges for connection from: " + connection.getSource() + " to " + connection.getSink());
 		}
 		connection.setTimingEdges(timingEdges);
@@ -381,7 +383,6 @@ public class RWRoute{
 	private void routeGlobalClkNets() {
  		if(this.clkNets.size() > 0) System.out.println("INFO: Route clock nets");
  		for(Net clk : this.clkNets) {
- 			System.out.println(clk.getName());
  			if(GlobalSignalRouting.crRoutes != null || GlobalSignalRouting.dstINTtileRoutes != null) {
  				if(GlobalSignalRouting.dstINTtileRoutes == null) {
  					System.out.println("INFOR: Route with clock skew data reference");
@@ -513,6 +514,29 @@ public class RWRoute{
 		this.numPreservedRoutableNets++;
 	}
 	
+	public boolean isMultiSLRDevice() {
+		return multiSLRDevice;
+	}
+
+	public Map<Node, Net> getPreservedNodes() {
+		return preservedNodes;
+	}
+
+	public void removeNetNodesFromPreservedNodes(Net net) {
+		Set<Node> netNodes = RouterHelper.getUsedNodesOfNet(net);
+		for(Node node : netNodes) {
+			this.preservedNodes.remove(node);
+		}
+	}
+	
+	public Map<TimingEdge, Connection> getTimingEdgeConnectionMap() {
+		return timingEdgeConnectionMap;
+	}
+
+	public TimingManager getTimingManager() {
+		return timingManager;
+	}
+
 	private Map<Short, Integer> connSpan = new HashMap<>();
 	/**
 	 * Creates a unique {@link NetWrapper} instance and {@link Connection} instances based on a {@link Net} instance.
@@ -522,6 +546,61 @@ public class RWRoute{
 	 * @return A {@link NetWrapper} instance.
 	 */
 	protected NetWrapper createsNetWrapperAndConnections(Net net, short boundingBoxExtension, boolean multiSLR) {
+		NetWrapper netWrapper = new NetWrapper(this.numWireNetsToRoute, boundingBoxExtension, net);
+		this.nets.add(netWrapper);
+		
+		SitePinInst source = net.getSource();
+		int indirect = 0;
+		Node sourceINTNode = null;
+		
+		for(SitePinInst sink:net.getSinkPins()){
+			if(RouterHelper.isExternalConnectionToCout(source, sink)){
+				source = net.getAlternateSource();
+				if(source == null){
+					String errMsg = "Null alternate source is for COUT-CIN connection: " + net.toStringFull();
+					 throw new IllegalArgumentException(errMsg);
+				}
+			}
+			Connection connection = new Connection(this.numConnectionsToRoute, source, sink, netWrapper);
+			this.numConnectionsToRoute++;
+			
+			List<Node> nodes = RouterHelper.projectInputPinToINTNode(sink);
+			if(nodes.isEmpty()) {
+				this.directConnections.add(connection);
+				connection.setDirect(true);
+			}else {
+				Node sinkINTNode = nodes.get(0);
+				this.indirectConnections.add(connection);
+				connection.setSinkRnode(this.createAddRoutableNode(this.rnodeId, connection.getSink(), sinkINTNode, RoutableType.PINFEED_I));
+				if(sourceINTNode == null) {
+					sourceINTNode = RouterHelper.projectOutputPinToINTNode(source);
+					if(sourceINTNode == null) {
+						throw new RuntimeException("ERROR: Null projected INT node for the source of net " + net.toStringFull());
+					}
+				}
+				connection.setSourceRnode(this.createAddRoutableNode(this.rnodeId, connection.getSource(), sourceINTNode, RoutableType.PINFEED_O));
+				connection.setDirect(false);
+				indirect++;
+				connection.computeHpwl();
+				this.addConnectionSpanInfo(connection);
+			}
+		}
+		
+		if(indirect > 0) {
+			netWrapper.computeHPWLAndCenterCoordinates(boundingBoxExtension);
+			if(this.config.isUseBoundingBox()) {
+				for(Connection connection : netWrapper.getConnection()) {
+					if(connection.isDirect()) continue;
+					connection.computeConnectionBoundingBox(boundingBoxExtension, multiSLR);
+				}
+			}
+		}
+		return netWrapper;
+	}
+	
+	//TODO REUSE ROUTES: CREATE RNODES BASED ON PIPS, ADD USERCOUNTS OF EACH RNODE
+	//TODO PRE-ESTIMATION CAN BE MORE GENERAL BY CHECKING RNODES LENGTH OF EACH CONNECTION
+	protected NetWrapper createsNetWrapperAndConnectionsReuse(Net net, short boundingBoxExtension, boolean multiSLR) {
 		NetWrapper netWrapper = new NetWrapper(this.numWireNetsToRoute, boundingBoxExtension, net);
 		this.nets.add(netWrapper);
 		
@@ -599,22 +678,33 @@ public class RWRoute{
 		}
 	}
 	
+	public Set<Net> conflictNets = new HashSet<>();
 	protected void addReservedNode(Node node, Net netToPreserve) {
 		Net reserved = this.preservedNodes.get(node);
 		if(reserved == null) {
 			this.preservedNodes.put(node, netToPreserve);
 		}else if(!reserved.getName().equals(netToPreserve.getName())){
+			boolean generateWarning = conflictNets.size() < 5;
 			EDIFNet reservedLogical = reserved.getLogicalNet();
 			EDIFNet toReserveLogical = netToPreserve.getLogicalNet();
 			if(reservedLogical != null && toReserveLogical != null) {
 				if(!toReserveLogical.equals(reservedLogical))
-					System.out.println("WARNING: Conflicting node " + node + ":"); 
-					System.out.println("         " + netToPreserve.getName() + " \n         " + reserved.getName());
+					if(generateWarning) this.generateConflictInfo(node, reserved, netToPreserve);
 			}else {
-				System.out.println("WARNING: Conflicting node " + node + ":"); 
-				System.out.println("         " + netToPreserve.getName() + " \n         " + reserved.getName());;
+				if(generateWarning) this.generateConflictInfo(node, reserved, netToPreserve);
 			}
+			conflictNets.add(reserved);
+			conflictNets.add(netToPreserve);//TODO detect anchor nets // preserve net with more than 1 pins
 		}	
+	}
+	
+	private void generateConflictInfo(Node node, Net reserved, Net netToPreserve) {
+		System.out.println("WARNING: Conflicting node " + node + ":");
+		System.out.println("         " + netToPreserve.getName() + " \n         " + reserved.getName());
+	}
+	
+	public Set<Net> getConflictNets() {
+		return conflictNets;
 	}
 	
 	/**
@@ -716,6 +806,9 @@ public class RWRoute{
 	 */
 	private void preRoutingEstimation() {
 		if(config.isTimingDriven()) {
+			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config, this.conflictNets);//TODO DO NOT USE conflictNets
+			this.timingEdgeConnectionMap = new HashMap<>();
+			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
 			this.estimateDelayOfConnections();
 			this.maxDelayAndTimingVertex = this.timingManager.calculateArrivalRequireTimes();
 			this.timingManager.calculateCriticality(this.indirectConnections, MAX_CRITICALITY, this.config.getCriticalityExponent(), this.maxDelayAndTimingVertex.getFirst().floatValue());
@@ -1780,7 +1873,7 @@ public class RWRoute{
 		if(tracker != null) tracker.start("Route Design");
 		RWRoute router;
 		if(config.isPartialRouting()) {
-			router = new PartialRouter(design, config);
+			router = new PartialRouter2(design, config);
 		}else {
 			router = new RWRoute(design, config);
 		}

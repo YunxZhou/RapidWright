@@ -26,6 +26,7 @@ import java.util.Set;
 
 import com.xilinx.rapidwright.design.ConstraintGroup;
 import com.xilinx.rapidwright.design.Design;
+import com.xilinx.rapidwright.design.Net;
 import com.xilinx.rapidwright.design.SitePinInst;
 import com.xilinx.rapidwright.device.Device;
 import com.xilinx.rapidwright.device.Node;
@@ -81,10 +82,10 @@ public class TimingManager {
         timingGraph.setTimingModel(timingModel);
         this.device = this.design.getDevice();
         if (doBuild)
-            build(false);
+            build(false, null);
     }
     
-    public TimingManager(Design design, boolean doBuild, TimerTree timer, Configuration config) {
+    public TimingManager(Design design, boolean doBuild, TimerTree timer, Configuration config, Set<Net> assignedNets) {
     	this.design = design;
     	this.setTreq();
     	this.verbose = config.isVerbose();
@@ -97,7 +98,7 @@ public class TimingManager {
         timingGraph.setTimingModel(timingModel);
         this.device = this.design.getDevice();
         if (doBuild)
-            build(config.isPartialRouting());
+            build(config.isPartialRouting(), assignedNets);
     }
     
     /**
@@ -386,7 +387,7 @@ public class TimingManager {
      * Builds the TimingModel and TimingGraph.
      * @return Indication of successful completion.
      */
-    private boolean build(boolean isPartialRouting) {
+    private boolean build(boolean isPartialRouting, Set<Net> assignedNets) {
     	Timer.printFormattedLocalDateTime("build timing model", true);
     	if(this.routerTimer != null) this.routerTimer.createTimer("build timing model", "Initialization").start();
         timingModel.build();
@@ -395,7 +396,7 @@ public class TimingManager {
         
         Timer.printFormattedLocalDateTime("build timing graph", true);
         if(this.routerTimer != null) this.routerTimer.createTimer("build timing graph", "Initialization").start();
-        timingGraph.build(isPartialRouting);
+        timingGraph.build(isPartialRouting, assignedNets);
         if(this.routerTimer != null) this.routerTimer.getTimer("build timing graph").stop();
         Timer.printFormattedLocalDateTime("build timing graph", false);
         

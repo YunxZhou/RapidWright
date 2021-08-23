@@ -276,7 +276,7 @@ public class RouterHelper {
 	 * in the order of source pin node, sink pin nodes, and other intermediate nodes.
 	 * @param net The target net.
 	 * @return All nodes used by the net.
-	 */
+	 */ //TODO can be optimzied
 	public static List<Node> getNodesOfNet(Net net){
 		List<Node> nodes = new ArrayList<>();
 		if(net.getSource() != null) nodes.add(net.getSource().getConnectedNode());
@@ -302,7 +302,7 @@ public class RouterHelper {
 	 * Gets a set of {@link Node} instances used by a {@link Net} instance.
 	 * @param net The target net.
 	 * @return A set of nodes used by a net.
-	 */
+	 */ //TODO can be optimized
 	public static Set<Node> getUsedNodesOfNet(Net net){
 		Set<Node> nodes = new HashSet<>();
 		if(net.getSource() != null) nodes.add(net.getSource().getConnectedNode());

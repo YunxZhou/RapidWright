@@ -150,7 +150,7 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
     /**
      * Builds the TimingGraph based on analyzing nets within a {@link Design} object.
      */
-    public void build(boolean isPartialRouting) {
+    public void build(boolean isPartialRouting, Set<Net> assignedNets) {
     	if (timingModel == null) {
             throw new RuntimeException("Error: The TimingModel is not properly set for the "
                     + "TimingGraph prior to building.");
@@ -163,23 +163,33 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
         myCellMap = design.getNetlist().generateCellInstMap();
         if(!isPartialRouting) {
         	determineLogicDelaysFromEDIFCellInsts(this.myCellMap);
-        }else {
-        	determineLogicDelaysFromEDIFCellInsts(this.generateCellMapOfUnoutedNets());
+        }else if(assignedNets == null) {
+        	determineLogicDelaysFromEDIFCellInsts(this.generateCellMapOfUnoutedNets(this.design.getNets()));
+        }else if(assignedNets != null) {
+        	determineLogicDelaysFromEDIFCellInsts(this.generateCellMapOfUnoutedNets(assignedNets));
         }
         if(this.routerTimer != null) this.routerTimer.getTimer("determine logic dly").stop();
         Timer.printFormattedLocalDateTime("determine logic dly", false);
         
         Timer.printFormattedLocalDateTime("add net dly edges", true);
         if(this.routerTimer != null) this.routerTimer.createTimer("add net dly edges", "build timing graph").start();
-        for (Net net : this.design.getNets()) {
+        if(assignedNets != null) {
+        	this.addTimingEdgesOfNets(isPartialRouting, this.design.getNets());
+        }else {
+        	this.addTimingEdgesOfNets(isPartialRouting, assignedNets);
+        }
+        if(this.routerTimer != null) this.routerTimer.getTimer("add net dly edges").stop();
+        Timer.printFormattedLocalDateTime("add net dly edges", false);
+    }
+    
+    private void addTimingEdgesOfNets(boolean isPartialRouting, Collection<Net> assignedNets) {
+    	for (Net net : assignedNets) {
             if(net.isClockNet()) continue;//this is for getting rid of the problem in addNetDelayEdges() of clock net
             if(net.isStaticNet()) continue;
             if(!isPartialRouting || !net.hasPIPs()) {
             	addNetDelayEdges(net);
             }
         }
-        if(this.routerTimer != null) this.routerTimer.getTimer("add net dly edges").stop();
-        Timer.printFormattedLocalDateTime("add net dly edges", false);
     }
     
     public void populateHierCellInstMap() {
@@ -212,10 +222,10 @@ public class TimingGraph extends DefaultDirectedWeightedGraph<TimingVertex, Timi
      * Gets a map of hierarchical names to EDIFCellInsts of unrouted nets only
      * @return A map of hierarchical names to EdifCellInstances that use primitives in the library, for unrouted nets only
      */
-    private Map<String, EDIFCellInst> generateCellMapOfUnoutedNets() {
+    private Map<String, EDIFCellInst> generateCellMapOfUnoutedNets(Collection<Net> nets) {
     	Map<String, EDIFCellInst> partialCellMap = new HashMap<>();
     	Set<String> keys = new HashSet<>();
-    	for(Net n : design.getNets()) {
+    	for(Net n : nets) {
     		if(n.isClockNet() || n.isStaticNet() || n.hasPIPs()) continue;
     		if(!RouterHelper.isRoutableNetWithSourceSinks(n)) continue;
     		List<EDIFHierPortInst> ehportInsts = design.getNetlist().getPhysicalPins(n.getName());

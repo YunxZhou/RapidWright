@@ -40,7 +40,7 @@ public class ReportTimingAndWirelength{
 	public ReportTimingAndWirelength(Design design, Configuration config) {
 		this.design = design;
 		RWRoute.setTimingData(config);	
-		this.timingManager = new TimingManager(this.design, true, null, config);		
+		this.timingManager = new TimingManager(this.design, true, null, config, null);		
 	    this.estimator = new DelayEstimatorBase(this.design.getDevice(), new InterconnectInfo(), config.isUseUTurnNodes(), 0);
 		RoutableNode.setTimingDriven(true, this.estimator);
 		this.wirelength = 0;
