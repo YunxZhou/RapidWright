@@ -72,7 +72,7 @@ public class PartialRouter2 extends RWRoute{
 			
 			this.removeNetNodesFromPreservedNodes(net); // remove preserved nodes of a net from the map
 			this.createsNetWrapperAndConnectionsReuse(net, this.config.getBoundingBoxExtension(), this.isMultiSLRDevice());
-			net.unroute();//TODO do not unroute, reuse routes
+			net.unroute();//TODO do not unroute, reuse routes, then toPreserveNets should be detected before createNetWrapperAndConnections
 		}
 		for(Net net : toPreserveNets) {
 			this.preserveNet(net);
