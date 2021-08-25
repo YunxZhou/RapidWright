@@ -23,9 +23,6 @@
 
 package com.xilinx.rapidwright.rwroute;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,12 +30,8 @@ import com.xilinx.rapidwright.design.Design;
 import com.xilinx.rapidwright.design.Net;
 import com.xilinx.rapidwright.design.NetType;
 import com.xilinx.rapidwright.design.SitePinInst;
-import com.xilinx.rapidwright.device.Site;
 import com.xilinx.rapidwright.device.Tile;
-import com.xilinx.rapidwright.device.TileTypeEnum;
 import com.xilinx.rapidwright.edif.EDIFHierPortInst;
-import com.xilinx.rapidwright.edif.EDIFNet;
-import com.xilinx.rapidwright.edif.EDIFPortInst;
 
 /**
  * A class extends {@link RWRoute} for partial routing.
