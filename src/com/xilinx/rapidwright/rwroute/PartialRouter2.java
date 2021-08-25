@@ -33,6 +33,10 @@ import com.xilinx.rapidwright.design.Design;
 import com.xilinx.rapidwright.design.Net;
 import com.xilinx.rapidwright.design.NetType;
 import com.xilinx.rapidwright.design.SitePinInst;
+import com.xilinx.rapidwright.device.Site;
+import com.xilinx.rapidwright.device.Tile;
+import com.xilinx.rapidwright.device.TileTypeEnum;
+import com.xilinx.rapidwright.edif.EDIFHierPortInst;
 import com.xilinx.rapidwright.edif.EDIFNet;
 import com.xilinx.rapidwright.edif.EDIFPortInst;
 
@@ -42,41 +46,75 @@ import com.xilinx.rapidwright.edif.EDIFPortInst;
 public class PartialRouter2 extends RWRoute{
 	public PartialRouter2(Design design, Configuration config){
 		super(design, config);
-		
+	}
+	
+	protected void determineRoutingTargets() {
+		this.categorizeNets();
+		if(this.getConflictNets().size() > 0)
+			System.out.println("CRITICAL WARNING: Conficting nets: " + this.getConflictNets().size());
+		this.handleConflictNets(this.getDesign());
+		if(this.config.isPrintConnectionSpan()) this.printConnectionSpanStatistics();
+	}
+	
+	private void handleConflictNets(Design design) {
 		//conflict nets are consistent with what recognized in RW
-//		List<Net> vivadoConflictNets = this.readDesignNetsFromFile(design, "/home/yun/Desktop/vivado_conflict_nets.txt");
+//		List<Net> vivadoConflictNets = this.readDesignNetsFromFile(design, "vivado_conflict_nets.txt");
 		
-//		List<Net> vivadoUnouteNets = this.readDesignNetsFromFile(design, "/home/yun/Desktop/unrouted_anchor_nets_vivado.txt");
-		//TODO 
+//		List<Net> vivadoUnouteNets = this.readDesignNetsFromFile(design, "unrouted_anchor_nets_vivado.txt");
+		// TODO Vivado dumped net names cannot be recognized in RW, see vivadoUnrouteNets
 //		System.out.println(design.getNet("w_IO_L2_in142_U0_fifo_w_out_V_V_din_pass_0_out[30]"));
 		
 		List<Net> toPreserveNets = new ArrayList<>();
 		for(Net net : this.getConflictNets()) {
 			if(net.getType() != NetType.WIRE) {//skip clk, vcc and gnd
-				System.out.println("SKIP NON WIRE NET: " + net);
+				System.out.println("PRESERVE NON-WIRE NET: " + net);
 				toPreserveNets.add(net);
 				continue;
 			}
-			if(!RouterHelper.isRoutableNetWithSourceSinks(net)) {
-				toPreserveNets.add(net);
-				System.out.println("SKIP NET WITHOUT BOTH SOURCE AND SINKS: " + net.getName());
-				continue;
-			}
+			
 			if(net.getSinkPins().size() > 1) {
-				//TODO fanout > 1 may not work for other DCPs, need a good way to detect anchor nets
-				// TODO Vivado dumped net names cannot be recognized in RW, see vivadoUnrouteNets
 				toPreserveNets.add(net);
-				System.out.println("SKIP NON FF-FF NET (fanout > 1): " + net.getName());
+				System.out.println("PRESERVE NON FF-FF NET (fanout > 1): " + net.getName());
+				continue;
+			}
+			
+			if(!this.isNonLagunaAnchorNet(net, design)) {
+				System.out.println("PRESERVE NON ANCHOR NET: " + net.getName());
+				toPreserveNets.add(net);
 				continue;
 			}
 			
 			this.removeNetNodesFromPreservedNodes(net); // remove preserved nodes of a net from the map
 			this.createsNetWrapperAndConnectionsReuse(net, this.config.getBoundingBoxExtension(), this.isMultiSLRDevice());
-			net.unroute();//TODO do not unroute, reuse routes, then toPreserveNets should be detected before createNetWrapperAndConnections
+			net.unroute();//NOTE: do not unroute if routing tree is reused, then toPreserveNets should be detected before createNetWrapperAndConnections
 		}
 		for(Net net : toPreserveNets) {
 			this.preserveNet(net);
 		}
+	}
+	
+	private boolean isNonLagunaAnchorNet(Net net, Design design) {
+		boolean anchorNet = false;
+		List<EDIFHierPortInst> ehportInsts = design.getNetlist().getPhysicalPins(net.getName());
+		boolean input = false;
+		if(ehportInsts == null) { //DSP related nets
+			return false;
+		}
+		for(EDIFHierPortInst eport : ehportInsts) {
+			if(eport.toString().contains("q0_reg")) {//q0_reg for identifying anchor nets, more efficient way to check?
+				anchorNet = true;
+				if(eport.isInput()) input = true;
+				break;//are there nets connecting CLE anchor and LAG anchor?
+			}
+		}
+		Tile anchorTile = null;
+		if(input) {
+			anchorTile = net.getSinkPins().get(0).getTile();
+		}else {
+			anchorTile = net.getSource().getTile();
+		}
+		// if laguna anchor nets are never conflicted, we do not need to check tile.
+		return anchorNet && anchorTile.getName().startsWith("CLE");
 	}
 	
 	@Override
@@ -126,46 +164,11 @@ public class PartialRouter2 extends RWRoute{
 		}else{
 			// In partial routing mode, a net with PIPs is preserved.
 			// This means the routed net is supposed to be fully routed without conflicts.
-			// TODO detect partially routed nets and nets with possible conflicting nodes.
+			// TODO detect partially routed nets
 			this.preserveNet(net);
 			this.increaseNumPreservedWireNets();
 		}
 	}
-	
-	///home/yun/Desktop/unrouted_anchor_nets_vivado.txt
-	private List<Net> readDesignNetsFromFile(Design design, String textFile) {
-		List<Net> vivadoConflictNets = new ArrayList<>();
-		int i = 0;
-		try {
-			BufferedReader myReader = new BufferedReader(new FileReader(textFile));
-			String line;
-			while((line = myReader.readLine()) != null) {
-				if (line.length() == 0) {
-					break;
-				}
-				String[] netName = line.split("\\s+");
-				String name = netName[0];
-				Net net = design.getNet(name);
-				if(net == null) {
-//					System.out.println("NULL: " + name);
-				}else if(!RouterHelper.isRoutableNetWithSourceSinks(net)) {
-					System.out.println("NOT ROUTABLE: " + name);
-					System.out.println(net.toStringFull());
-				}else {
-					vivadoConflictNets.add(net);
-				}
-				i++;
-			}
-			myReader.close();
-			System.out.println("Successfully read lines of file: " + i);
-		} catch (IOException e) {
-			System.out.println("An error occurred when reading file.");
-			e.printStackTrace();
-		}
-		
-		return vivadoConflictNets;
-	}
-	
 }
 
 

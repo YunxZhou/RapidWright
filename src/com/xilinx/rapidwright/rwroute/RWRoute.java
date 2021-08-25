@@ -81,6 +81,8 @@ public class RWRoute{
 	private List<Net> clkNets;
 	/** Static nets */
 	private Map<Net, List<SitePinInst>> staticNetAndRoutingTargets;
+	/** Routed nets with conflicting nodes that should also be routed */
+	private Set<Net> conflictNets = new HashSet<>();
 	/** Several integers to indicate the netlist info */
 	private int numPreservedRoutableNets;
 	private int numPreservedClks;
@@ -207,11 +209,11 @@ public class RWRoute{
 		this.routerTimer.getTimer("determine route targets").stop();
 		Timer.printFormattedLocalDateTime("determine route targets", false);
 		
-//		if(this.config.isTimingDriven()) {
-//			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config);
-//			this.timingEdgeConnectionMap = new HashMap<>();
-//			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
-//		}
+		if(this.config.isTimingDriven()) {
+			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config, this.conflictNets);
+			this.timingEdgeConnectionMap = new HashMap<>();
+			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
+		}
 		
 		this.sortedIndirectConnections = new ArrayList<>();		
 		this.routethruHelper = new RouteThruHelper(this.design.getDevice());		
@@ -252,7 +254,12 @@ public class RWRoute{
 	 * Classifies {@link Net} Objects into different categories: clocks, static nets,
 	 * and regular signal nets (i.e. {@link NetType}.WIRE) and determines routing targets.
 	 */
-	private void determineRoutingTargets(){
+	protected void determineRoutingTargets(){
+		this.categorizeNets();
+		if(this.config.isPrintConnectionSpan()) this.printConnectionSpanStatistics();
+	}
+	
+	protected void categorizeNets() {
 		this.numWireNetsToRoute = 0;
 		this.numConnectionsToRoute = 0;
 		this.numPreservedRoutableNets = 0;
@@ -289,15 +296,12 @@ public class RWRoute{
 				System.err.println("ERROR: Unknown net " + net.toString());
 			}
 		}
-		if(this.config.isPrintConnectionSpan()) this.printConnectionSpanStatistics();
-		if(this.conflictNets.size() > 0)
-			System.out.println("CRITICAL WARNING: Conficting nets: " + this.conflictNets.size());
 	}
 	
 	/**
 	 * A helper method for profiling the routing runtime v.s. average span of connections.
 	 */
-	private void printConnectionSpanStatistics() {
+	protected void printConnectionSpanStatistics() {
 		System.out.println("------------------------------------------------------------------------------");
 		System.out.println("Connection Span Info");
 		System.out.println(" Span" + "\t" + "# Connections" + "\t" + "Percent");
@@ -527,6 +531,7 @@ public class RWRoute{
 		for(Node node : netNodes) {
 			this.preservedNodes.remove(node);
 		}
+		this.numPreservedWire--;
 	}
 	
 	public Map<TimingEdge, Connection> getTimingEdgeConnectionMap() {
@@ -678,7 +683,6 @@ public class RWRoute{
 		}
 	}
 	
-	public Set<Net> conflictNets = new HashSet<>();
 	protected void addReservedNode(Node node, Net netToPreserve) {
 		Net reserved = this.preservedNodes.get(node);
 		if(reserved == null) {
@@ -806,9 +810,6 @@ public class RWRoute{
 	 */
 	private void preRoutingEstimation() {
 		if(config.isTimingDriven()) {
-			this.timingManager = new TimingManager(this.design, true, this.routerTimer, this.config, this.conflictNets);//TODO DO NOT USE conflictNets
-			this.timingEdgeConnectionMap = new HashMap<>();
-			setTimingEdgesOfConnections(this.indirectConnections, this.timingManager, this.timingEdgeConnectionMap);
 			this.estimateDelayOfConnections();
 			this.maxDelayAndTimingVertex = this.timingManager.calculateArrivalRequireTimes();
 			this.timingManager.calculateCriticality(this.indirectConnections, MAX_CRITICALITY, this.config.getCriticalityExponent(), this.maxDelayAndTimingVertex.getFirst().floatValue());
