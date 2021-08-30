@@ -604,61 +604,6 @@ public class RWRoute{
 		return netWrapper;
 	}
 	
-	//TODO REUSE ROUTES: CREATE RNODES BASED ON PIPS, ADD USERCOUNTS OF EACH RNODE
-	//TODO PRE-ESTIMATION CAN BE MORE GENERAL BY CHECKING RNODES LENGTH OF EACH CONNECTION
-	protected NetWrapper createsNetWrapperAndConnectionsReuse(Net net, short boundingBoxExtension, boolean multiSLR) {
-		NetWrapper netWrapper = new NetWrapper(this.numWireNetsToRoute, boundingBoxExtension, net);
-		this.nets.add(netWrapper);
-		
-		SitePinInst source = net.getSource();
-		int indirect = 0;
-		Node sourceINTNode = null;
-		
-		for(SitePinInst sink:net.getSinkPins()){
-			if(RouterHelper.isExternalConnectionToCout(source, sink)){
-				source = net.getAlternateSource();
-				if(source == null){
-					String errMsg = "Null alternate source is for COUT-CIN connection: " + net.toStringFull();
-					 throw new IllegalArgumentException(errMsg);
-				}
-			}
-			Connection connection = new Connection(this.numConnectionsToRoute, source, sink, netWrapper);
-			this.numConnectionsToRoute++;
-			
-			List<Node> nodes = RouterHelper.projectInputPinToINTNode(sink);
-			if(nodes.isEmpty()) {
-				this.directConnections.add(connection);
-				connection.setDirect(true);
-			}else {
-				Node sinkINTNode = nodes.get(0);
-				this.indirectConnections.add(connection);
-				connection.setSinkRnode(this.createAddRoutableNode(this.rnodeId, connection.getSink(), sinkINTNode, RoutableType.PINFEED_I));
-				if(sourceINTNode == null) {
-					sourceINTNode = RouterHelper.projectOutputPinToINTNode(source);
-					if(sourceINTNode == null) {
-						throw new RuntimeException("ERROR: Null projected INT node for the source of net " + net.toStringFull());
-					}
-				}
-				connection.setSourceRnode(this.createAddRoutableNode(this.rnodeId, connection.getSource(), sourceINTNode, RoutableType.PINFEED_O));
-				connection.setDirect(false);
-				indirect++;
-				connection.computeHpwl();
-				this.addConnectionSpanInfo(connection);
-			}
-		}
-		
-		if(indirect > 0) {
-			netWrapper.computeHPWLAndCenterCoordinates(boundingBoxExtension);
-			if(this.config.isUseBoundingBox()) {
-				for(Connection connection : netWrapper.getConnection()) {
-					if(connection.isDirect()) continue;
-					connection.computeConnectionBoundingBox(boundingBoxExtension, multiSLR);
-				}
-			}
-		}
-		return netWrapper;
-	}
-	
 	/**
 	 * Adds span info of a connection.
 	 * @param connection A connection of which span info is to be added.

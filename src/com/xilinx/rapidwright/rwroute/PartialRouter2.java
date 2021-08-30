@@ -78,7 +78,7 @@ public class PartialRouter2 extends RWRoute{
 			}
 			
 			this.removeNetNodesFromPreservedNodes(net); // remove preserved nodes of a net from the map
-			this.createsNetWrapperAndConnectionsReuse(net, this.config.getBoundingBoxExtension(), this.isMultiSLRDevice());
+			this.createsNetWrapperAndConnections(net, this.config.getBoundingBoxExtensionX(), this.config.getBoundingBoxExtensionY(), this.isMultiSLRDevice());
 			net.unroute();//NOTE: do not unroute if routing tree is reused, then toPreserveNets should be detected before createNetWrapperAndConnections
 		}
 		for(Net net : toPreserveNets) {
@@ -153,7 +153,7 @@ public class PartialRouter2 extends RWRoute{
 	@Override
 	protected void addNetConnectionToRoutingTargets(Net net, boolean multiSLR) {
 		if(!net.hasPIPs()) {
-			this.createsNetWrapperAndConnections(net, this.config.getBoundingBoxExtension(), multiSLR);
+			this.createsNetWrapperAndConnections(net, this.config.getBoundingBoxExtensionX(),this.config.getBoundingBoxExtensionY(), multiSLR);
 		}else{
 			// In partial routing mode, a net with PIPs is preserved.
 			// This means the routed net is supposed to be fully routed without conflicts.
