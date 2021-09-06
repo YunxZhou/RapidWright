@@ -302,28 +302,22 @@ public class RWRoute{
 	 * A helper method for profiling the routing runtime v.s. average span of connections.
 	 */
 	protected void printConnectionSpanStatistics() {
-		System.out.println("------------------------------------------------------------------------------");
-		System.out.println("Connection Span Info");
-		System.out.println(" Span" + "\t" + "# Connections" + "\t" + "Percent");
 		long sumSpan = 0;
 		short max = 0;
 		for(short span : this.connSpan.keySet()) {
-			int counter = this.connSpan.get(span);
-			System.out.printf(String.format("%5d \t%12d \t%7.2f\n", span, counter, (float)counter / this.indirectConnections.size() * 100));
-			sumSpan += span*this.connSpan.get(span);
+			sumSpan += span * this.connSpan.get(span);
 			if(span > max) max = span;
 		}
-		System.out.println();
 		long avg = (long) (sumSpan / ((float) this.indirectConnections.size()));
-		System.out.println("Max span of connections: " + max);
-		System.out.println("Avg span of connections: " + avg);
-		int spanNoLongerThanAvg = 0;
+		System.out.println("INFO: Max span of connections: " + max);
+		System.out.println("INFO: Avg span of connections: " + avg);
+		int spanLongerThanAvg = 0;
 		for(short span : this.connSpan.keySet()) {
-			if(span <= avg) spanNoLongerThanAvg += this.connSpan.get(span);
+			if(span > avg) spanLongerThanAvg += this.connSpan.get(span);
 		}
 		
-		System.out.printf("# connections no longer than avg span: " + spanNoLongerThanAvg);
-		System.out.printf(" (" + String.format("%5.2f", (float)spanNoLongerThanAvg / this.indirectConnections.size() * 100) + "%%)\n");
+		System.out.printf("INFO: # connections longer than avg span: " + spanLongerThanAvg);
+		System.out.printf(" (" + String.format("%5.2f", (float)spanLongerThanAvg / this.indirectConnections.size() * 100) + "%%)\n");
 	}
 	
 	/**
@@ -633,7 +627,7 @@ public class RWRoute{
 		Net reserved = this.preservedNodes.get(node);
 		if(reserved == null) {
 			this.preservedNodes.put(node, netToPreserve);
-		}else if(!reserved.getName().equals(netToPreserve.getName())){
+		}else if(reserved.getSource() != null && netToPreserve.getSource() != null && !reserved.getName().equals(netToPreserve.getName())){
 			boolean generateWarning = conflictNets.size() < 5;
 			EDIFNet reservedLogical = reserved.getLogicalNet();
 			EDIFNet toReserveLogical = netToPreserve.getLogicalNet();
@@ -644,7 +638,7 @@ public class RWRoute{
 				if(generateWarning) this.generateConflictInfo(node, reserved, netToPreserve);
 			}
 			conflictNets.add(reserved);
-			conflictNets.add(netToPreserve);//TODO detect anchor nets // preserve net with more than 1 pins
+			conflictNets.add(netToPreserve);
 		}	
 	}
 	
