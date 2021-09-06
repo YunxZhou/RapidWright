@@ -1806,7 +1806,6 @@ public class RWRoute{
 		DesignTools.makePhysNetNamesConsistent(design);
 		if(!config.isPartialRouting() || (!design.getVccNet().hasPIPs() && !design.getGndNet().hasPIPs())) {
 			DesignTools.createPossiblePinsToStaticNets(design);
-			//TODO 0731 YZ: results in site pin conflicts of optical-flow-post-place dcp
 		}
 		DesignTools.createMissingSitePinInsts(design);
 		Timer.printFormattedLocalDateTime("create_missing_pins", false);

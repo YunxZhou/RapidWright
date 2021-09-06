@@ -30,6 +30,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.math.BigInteger;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -67,9 +69,14 @@ import com.xilinx.rapidwright.edif.EDIFNet;
 import com.xilinx.rapidwright.edif.EDIFNetlist;
 import com.xilinx.rapidwright.edif.EDIFPort;
 import com.xilinx.rapidwright.edif.EDIFPortInst;
+import com.xilinx.rapidwright.edif.EDIFPropertyValue;
 import com.xilinx.rapidwright.edif.EDIFTools;
 import com.xilinx.rapidwright.router.RouteNode;
 import com.xilinx.rapidwright.tests.CodePerfTracker;
+import com.xilinx.rapidwright.util.FileTools;
+import com.xilinx.rapidwright.util.Job;
+import com.xilinx.rapidwright.util.JobQueue;
+import com.xilinx.rapidwright.util.LocalJob;
 import com.xilinx.rapidwright.util.MessageGenerator;
 import com.xilinx.rapidwright.util.Pair;
 import com.xilinx.rapidwright.util.StringTools;
@@ -2205,28 +2212,65 @@ public class DesignTools {
 
 	public static void createPossiblePinsToStaticNets(Design design) {
 		createA1A6ToStaticNets(design);
+		createCeClkOfRoutethruFFToVCC(design);
 		createCeSrRstPinsToVCC(design);
+	}
+	
+	public static void createCeClkOfRoutethruFFToVCC(Design design) {
+		Net vcc = design.getVccNet();
+        Net gnd = design.getGndNet();
+        for(SiteInst si : design.getSiteInsts()) {
+            if(!Utils.isSLICE(si)) continue;
+            for(BEL bel : si.getBELs()) {
+                if(si.getCell(bel) != null) continue;
+                BELPin q = bel.getPin("Q");
+                if(q != null) {
+                    Net netQ = si.getNetFromSiteWire(q.getSiteWireName());
+                    if(netQ == null) continue;
+                    BELPin dPin = bel.getPin("D");
+                    if(dPin != null) {
+                        Net netD = si.getNetFromSiteWire(dPin.getSiteWireName());
+                        if(netQ == netD) {
+                            //System.out.println(si.getSiteName() + "/" + bel + ": " + netQ);
+                            // Need VCC at CE
+                            BELPin ceInput = bel.getPin("CE");
+                            String ceInputSitePinName = ceInput.getConnectedSitePinName();
+                            SitePinInst ceSitePin = si.getSitePinInst(ceInputSitePinName);
+                            if(ceSitePin == null) {
+                                ceSitePin = vcc.createPin(ceInputSitePinName, si);
+                            }
+                            si.routeIntraSiteNet(vcc, ceSitePin.getBELPin(), ceInput);
+                            // ...and GND at CLK
+                            BELPin clkInput = bel.getPin("CLK");
+                            BELPin clkInvOut = clkInput.getSourcePin();
+                            si.routeIntraSiteNet(gnd, clkInvOut, clkInput);
+                            BELPin clkInvIn = clkInvOut.getBEL().getPin(0);
+                            String clkInputSitePinName = clkInvIn.getConnectedSitePinName();
+                            SitePinInst clkInputSitePin = si.getSitePinInst(clkInputSitePinName);
+                            if(clkInputSitePin == null) {
+                                clkInputSitePin = vcc.createPin(clkInputSitePinName, si);
+                            }
+                            si.routeIntraSiteNet(vcc, clkInputSitePin.getBELPin(), clkInvIn);
+                        }
+                    }
+                }
+            }
+        }
 	}
 
 	public static void createA1A6ToStaticNets(Design design) {
-		// TODO: 2020.2.7 0731 optical-flow_placed: some A6 should connect to VCC, some to GND, when the recognized nets are GND, how to detect?
 		for(SiteInst si : design.getSiteInsts()) {
 			for(Cell cell : si.getCells()) {
 				BEL bel = cell.getBEL();
-				if(bel == null) continue;
-				if(!bel.getName().contains("LUT")) continue;
+				if(bel == null || !bel.getName().contains("LUT")) continue;
 				if(bel.getName().contains("5LUT")) {
 					bel = si.getBEL(bel.getName().replace("5", "6"));
 				}
 				for(String belPinName : lut6BELPins) {
-					if(belPinName.equals("A1")) {
-						EDIFCellInst edfCellInst = cell.getEDIFCellInst();
-						EDIFCell edfCell = edfCellInst != null? edfCellInst.getCellType() : null;
-						if(edfCell != null && !edfCell.toString().equals("SRL16E"))	continue;
-					}
+					if(belPinName.equals("A1") && !"SRL16E".equals(cell.getType()) && !"SRLC32E".equals(cell.getType())) continue;
 					BELPin belPin = bel.getPin(belPinName);
 					if(belPin != null) {
-						createAddSitePinInstToStaticNet(belPin, si, design);
+						createMissingStaticSitePins(belPin, si, cell);
 					}
 				}
 			}
@@ -2234,7 +2278,6 @@ public class DesignTools {
 	}
 
 	public static void createCeSrRstPinsToVCC(Design design) {
-		//note: after updating to 2020.2.5, we need to add a check to see if the spi already exists
 		for(Cell cell : design.getCells()) {
 			if(isUnisimFlipFlopType(cell.getType())) {
 				BEL bel = cell.getBEL();
@@ -2265,24 +2308,58 @@ public class DesignTools {
 					if(!si.getSitePinInstNames().contains("RSTREGBU")) net.createPin("RSTREGBU", si);
 					if(!si.getSitePinInstNames().contains("RSTREGBL")) net.createPin("RSTREGBL", si);
 				}
+		    }else if(cell.getType().equals("RAMB18E2") && cell.getAllPhysicalPinMappings("RSTREGB") == null) {
+		    	SiteInst si = cell.getSiteInst();
+		    	// type RAMB180: L_O, type RAMB181: U_O
+		    	// TODO Type should be consistent with getPrimarySiteTypeEnum()?
+		    	// System.out.println(cell.getAllPhysicalPinMappings("RSTREGB") + ", " + si + ", " + cell.getSiteWireNameFromLogicalPin("RSTREGB") + ", " + si.getPrimarySiteTypeEnum());
+		    	// [RSTREGB], SiteInst(name="RAMB18_X5Y64", type="RAMB180", site="RAMB18_X5Y64"), OPTINV_RSTREGB_L_O, RAMBFIFO18
+		    	// [RSTREGB], SiteInst(name="RAMB18_X5Y31", type="RAMB181", site="RAMB18_X5Y31"), OPTINV_RSTREGB_U_O, RAMB181
+		    	// null, SiteInst(name="RAMB18_X6Y43", type="RAMB181", site="RAMB18_X6Y43"), null, RAMB181
+		    	// null, SiteInst(name="RAMB18_X5Y22", type="RAMB180", site="RAMB18_X5Y22"), null, RAMBFIFO18
+		    	// The following workaround solves the RAMB18 RSTREGB pin issue
+		    	String siteWire = cell.getBEL().getPin("RSTREGB").getSiteWireName();
+		    	Net net = si.getNetFromSiteWire(siteWire);
+		    	if(net == null) {
+		    		net = design.getVccNet();
+		    		String pinName = null;
+		    		if(siteWire.endsWith("L_O")) {
+		    			pinName = "RSTREGBL";
+		    		}else {
+		    			pinName = "RSTREGBU";
+		    		}
+		    		if(si.getSitePinInstNames().isEmpty() || !si.getSitePinInstNames().contains(pinName)) {
+		    			net.createPin(pinName, si);
+		    		}
+		    	}
 		    }
 		}
 	}
 
-	public static void createAddSitePinInstToStaticNet(BELPin belPin, SiteInst si, Design design) {
-		SitePin sitePin = belPin.getSitePin(si.getSite());
-		Net net = si.getNetFromSiteWire(belPin.getSiteWireName());// vcc returned based on the site wire, site pins are not stored in dcp
-		//TODO net mapped incorrectly? recognized as GLOBAL_LOGIC1, while Vivado 2020.1 says it is GND
-		String [] belPinChars = belPin.toString().split("");
-		String spiName = belPinChars[0] + belPinChars[belPinChars.length - 1];
+	public static void createMissingStaticSitePins(BELPin belPin, SiteInst si, Cell cell) {
+        // SiteWire and SitePin Name are the same for LUT inputs
+	    String siteWireName = belPin.getSiteWireName();
+        // VCC returned based on the site wire, site pins are not stored in dcp
+		Net net = si.getNetFromSiteWire(siteWireName);
 		if(net == null) {
-			net = design.getVccNet();
-			if(!si.getSitePinInstNames().contains(spiName)) net.createPin(sitePin.getPinName(), si);
-		}else {
-			if(net.isStaticNet()) {
-				if(!si.getSitePinInstNames().contains(spiName)) net.createPin(sitePin.getPinName(), si);
-			}
+		    net = si.getDesign().getVccNet();
 		}
+        if(net.isStaticNet()) {
+            // SRL16Es that have been transformed from SRLC32E require GND on their A6 pin
+            if(cell.getType().equals("SRL16E") && siteWireName.endsWith("6")) {
+                EDIFPropertyValue val = cell.getProperty("XILINX_LEGACY_PRIM");
+                if(val != null && val.getValue().equals("SRLC32E")) {
+                    net = si.getDesign().getGndNet();
+                }
+            }
+            SitePinInst pin = si.getSitePinInst(siteWireName); 
+            if(pin == null) {
+                net.createPin(siteWireName, si);
+            } else if(!pin.getNet().equals(net)){
+                pin.getNet().removePin(pin);
+                net.addPin(pin);
+            }
+        }
 	}
 
 	//NOTE: SRL16E (reference name SRL16E, EDIFCell in RW) uses A2-A5, so we need to connect A1 & A6 to VCC,
@@ -2349,4 +2426,52 @@ public class DesignTools {
         
         return path;
     }
+
+	/**
+	 * Create a Job running Vivado to create a readable version of
+	 * the EDIF inside the checkpoint to a separate file.
+	 * @param checkpoint the input checkpoint
+	 * @param edif the output EDIF
+	 * @return the created Job
+	 */
+	public static Job generateReadableEDIFJob(Path checkpoint, Path edif) {
+		try {
+
+			final Job job = new LocalJob();
+			job.setCommand(FileTools.getVivadoPath() + " -mode batch -source readable.tcl");
+
+			final Path runDir = Files.createTempDirectory(edif.toAbsolutePath().getParent(),edif.getFileName()+"_readable_edif_");
+			job.setRunDir(runDir.toString());
+
+			Files.write(runDir.resolve("readable.tcl"), Arrays.asList(
+					"open_checkpoint " + checkpoint.toAbsolutePath(),
+					"write_edif " + edif.toAbsolutePath()
+			));
+
+
+			return job;
+		} catch (IOException e) {
+			throw new RuntimeException(e);
+		}
+	}
+
+	/**
+	 * Use Vivado to create a readable version of the EDIF file inside a Checkpoint.
+	 * @param dcp the checkpoint
+	 * @param edfFileName filename to use or null if we should select a filename
+	 * @return the output edif filename
+	 */
+	public static Path generateReadableEDIF(Path dcp, Path edfFileName) {
+		if (edfFileName == null) {
+			edfFileName = FileTools.replaceExtension(dcp, ".edf");
+		}
+		JobQueue queue = new JobQueue();
+		Job job = generateReadableEDIFJob(dcp, edfFileName);
+		queue.addJob(job);
+		if (!queue.runAllToCompletion()) {
+			throw new RuntimeException("Generating Readable EDIF job failed");
+		}
+		FileTools.deleteFolder(job.getRunDir());
+		return edfFileName;
+	}
 }
